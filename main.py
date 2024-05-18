@@ -41,19 +41,33 @@ def get_forecast(city):
         return None
     
     forecast = res.json()
-    daily_forecast = []
+    daily_forecast = {}
 
-    for i in range(0, len(forecast['list']), 8):  # Get the weather for every 24 hours
-        day = forecast['list'][i]
-        date = datetime.utcfromtimestamp(day['dt'])
-        icon_id = day['weather'][0]['icon']
-        min_temp = day['main']['temp_min'] - 273.15
-        max_temp = day['main']['temp_max'] - 273.15
-        description = day['weather'][0]['description']
+    # Process each 3-hour forecast
+    for entry in forecast['list']:
+        date = datetime.utcfromtimestamp(entry['dt'])
+        day = date.date()
+        temp = entry['main']['temp'] - 273.15  # Convert from Kelvin to Celsius
+        description = entry['weather'][0]['description']
+        icon_id = entry['weather'][0]['icon']
         icon_url = f"http://openweathermap.org/img/wn/{icon_id}@2x.png"
-        daily_forecast.append((date, min_temp, max_temp, description, icon_url))
 
-    return daily_forecast
+        if day not in daily_forecast:
+            daily_forecast[day] = {
+                'min_temp': temp,
+                'max_temp': temp,
+                'description': description,
+                'icon_url': icon_url
+            }
+        else:
+            daily_forecast[day]['min_temp'] = min(daily_forecast[day]['min_temp'], temp)
+            daily_forecast[day]['max_temp'] = max(daily_forecast[day]['max_temp'], temp)
+
+    # Convert dictionary to a sorted list of tuples
+    sorted_daily_forecast = sorted(daily_forecast.items())
+
+    # Only keep the first 5 days
+    return sorted_daily_forecast[:5]
 
 # Function to search weather for a city
 def search():
@@ -86,8 +100,12 @@ def search():
     forecast_result = get_forecast(city)
     if forecast_result:
         for i in range(5):
-            date, min_temp, max_temp, description, icon_url = forecast_result[i]
-            forecast_labels[i][0].configure(text=date.strftime('%A'))
+            day, data = forecast_result[i]
+            min_temp = data['min_temp']
+            max_temp = data['max_temp']
+            description = data['description']
+            icon_url = data['icon_url']
+            forecast_labels[i][0].configure(text=day.strftime('%A'))
             forecast_labels[i][1].configure(text=f"{min_temp:.1f}° / {max_temp:.1f}°")
             forecast_labels[i][2].configure(text=description.capitalize())
             forecast_image = Image.open(requests.get(icon_url, stream=True).raw)
@@ -148,7 +166,7 @@ for i in range(5):
 
     icon_label = tk.Label(day_frame)
     icon_label.pack()
-
+    
     temp_label = tk.Label(day_frame, font="Helvetica, 15")
     temp_label.pack()
 
