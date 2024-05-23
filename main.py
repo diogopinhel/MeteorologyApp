@@ -11,8 +11,8 @@ import os
 
 # Configuration (move sensitive information to environment variables)
 API_KEY = os.getenv('OPENWEATHERMAP_API_KEY', '1b2f8c4cbcbd0ee0ce628c4130e28dc2')
-EMAIL_USER = os.getenv('EMAIL_USER', 'joao.lima04@outlook.pt')
-EMAIL_PASS = os.getenv('EMAIL_PASS', 'Apagado2_')
+EMAIL_USER = os.getenv('EMAIL_USER', 'your_email')
+EMAIL_PASS = os.getenv('EMAIL_PASS', 'your_password')
 
 # Function to get current weather information from OpenWeatherMap API
 def get_weather_by_city(city):
@@ -42,13 +42,15 @@ def get_weather_by_coordinates(lat, lon):
         return None
 
 def parse_weather_data(weather):
+    if not weather:
+        return None
     icon_id = weather['weather'][0]['icon']
     temperature = weather['main']['temp'] - 273.15
     humidity = weather['main']['humidity']
     wind_speed = weather['wind']['speed']
     pressure = weather['main']['pressure']
     description = weather['weather'][0]['description']
-    city = weather.get('name', 'Unknown Location')  # Fallback for locations without a city name
+    city = weather.get('name', 'Unknown Location')
     country = weather['sys'].get('country', '')
     timezone = weather['timezone']
     icon_url = f"http://openweathermap.org/img/wn/{icon_id}@2x.png"
@@ -82,6 +84,8 @@ def get_forecast_by_coordinates(lat, lon):
         return None
 
 def parse_forecast_data(forecast):
+    if not forecast:
+        return None
     daily_forecast = {}
     for entry in forecast['list']:
         date = datetime.utcfromtimestamp(entry['dt'])
@@ -140,7 +144,7 @@ def send_email():
             server.sendmail(from_email, to_email, text)
             server.quit()
 
-            messagebox.showinfo("Successo", "Email enviado com sucesso!")
+            messagebox.showinfo("Sucesso", "Email enviado com sucesso!")
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao enviar o email: {e}")
 
@@ -171,10 +175,10 @@ def search():
     weather = None
     forecast = None
 
-    if city:
+    if city and city.lower() != "nome da cidade":
         weather = get_weather_by_city(city)
         forecast = get_forecast_by_city(city)
-    elif lat and lon:
+    elif lat and lon and lat.lower() != "latitude" and lon.lower() != "longitude":
         try:
             lat = float(lat)
             lon = float(lon)
@@ -187,13 +191,15 @@ def search():
         messagebox.showerror("Error", "Please enter a city name or coordinates.")
         return
 
-    if weather is None or forecast is None:
+    if not weather or not forecast:
         return
 
     result = parse_weather_data(weather)
+    if not result:
+        return
     icon_url, temperature, description, city, country, humidity, wind_speed, pressure, timezone = result
     local_time = datetime.utcnow() + timedelta(seconds=timezone)
-    local_time_str = local_time.strftime('%H:%M:%S')
+    local_time_str = local_time.strftime('%H:%M')
 
     location_label.configure(text=f"{city}, {country}")
     temperature_label.configure(text=f"Temperatura: {temperature:.2f}°C")
@@ -217,17 +223,16 @@ def search():
         max_temp = data['max_temp']
         description = data['description']
         icon_url = data['icon_url']
+
         forecast_labels[i][0].configure(text=day.strftime('%A'))
-        forecast_labels[i][1].configure(text=f"{min_temp:.1f}° / {max_temp:.1f}°")
+        forecast_labels[i][1].configure(text=f"{min_temp:.1f}°C - {max_temp:.1f}°C")
         forecast_labels[i][2].configure(text=description.capitalize())
         forecast_image = Image.open(requests.get(icon_url, stream=True).raw)
         forecast_icon = ImageTk.PhotoImage(forecast_image)
         forecast_labels[i][3].configure(image=forecast_icon)
         forecast_labels[i][3].image = forecast_icon
 
-    email_check.pack(pady=10)
-    email_frame.pack(pady=10)
-    send_email_button.pack(pady=10)
+    email_options_frame.pack(pady=10)
 
 def exit_fullscreen(event=None):
     app.attributes('-fullscreen', False)
@@ -236,6 +241,7 @@ def add_placeholder(entry, placeholder_text):
     entry.insert(0, placeholder_text)
     entry.bind("<FocusIn>", lambda event: on_focus_in(event, placeholder_text))
     entry.bind("<FocusOut>", lambda event: on_focus_out(event, placeholder_text))
+    entry.config(foreground='grey')
 
 def on_focus_in(event, placeholder_text):
     entry = event.widget
@@ -257,20 +263,24 @@ app.geometry("1500x700")
 app.attributes('-fullscreen', True)
 app.bind("<Escape>", exit_fullscreen)
 
-city_entry = ttk.Entry(app, font="Helvetica, 18")
-city_entry.pack(pady=10)
+# Entry frame for city and coordinates
+entry_frame = tk.Frame(app)
+entry_frame.pack(pady=10)
+
+city_entry = ttk.Entry(entry_frame, font="Helvetica, 18")
+city_entry.pack(side="left", padx=10)
 add_placeholder(city_entry, "Nome da Cidade")
 
-lat_entry = ttk.Entry(app, font="Helvetica, 18")
-lat_entry.pack(pady=10)
+lat_entry = ttk.Entry(entry_frame, font="Helvetica, 18")
+lat_entry.pack(side="left", padx=10)
 add_placeholder(lat_entry, "Latitude")
 
-lon_entry = ttk.Entry(app, font="Helvetica, 18")
-lon_entry.pack(pady=10)
+lon_entry = ttk.Entry(entry_frame, font="Helvetica, 18")
+lon_entry.pack(side="left", padx=10)
 add_placeholder(lon_entry, "Longitude")
 
-search_button = ttk.Button(app, text="Pesquisar", command=search, bootstyle="warning")
-search_button.pack(pady=10)
+search_button = ttk.Button(entry_frame, text="Pesquisar", command=search, bootstyle="warning")
+search_button.pack(side="left", padx=10)
 
 location_label = tk.Label(app, font="Helvetica, 25")
 location_label.pack(pady=20, anchor="w", padx=30)
@@ -291,17 +301,6 @@ timecity_label.pack(anchor="w", padx=30)
 
 alert_label = tk.Label(app, font="Helvetica, 20")
 alert_label.pack(anchor="w", padx=30, pady=10)
-
-email_var = tk.BooleanVar()
-email_check = ttk.Checkbutton(app, text="Receber previsões por email", variable=email_var, bootstyle="success")
-
-email_frame = tk.Frame(app)
-email_label = ttk.Label(email_frame, text="Endereço de email:")
-email_label.pack(side="left", padx=(0, 10))
-email_entry = ttk.Entry(email_frame, font="Helvetica, 18")
-email_entry.pack(side="left")
-
-send_email_button = ttk.Button(app, text="Enviar Email", command=send_email, bootstyle="info")
 
 forecast_frame = tk.Frame(app)
 forecast_frame.pack(pady=20)
@@ -324,5 +323,23 @@ for i in range(5):
     desc_label.pack()
 
     forecast_labels.append((day_label, temp_label, desc_label, icon_label))
+
+# Email options
+email_options_frame = tk.Frame(app)
+
+email_var = tk.BooleanVar()
+email_check = ttk.Checkbutton(email_options_frame, text="Receber previsões por email", variable=email_var, bootstyle="success")
+email_check.pack(side="left", padx=10)
+
+email_frame = tk.Frame(email_options_frame)
+email_frame.pack(side="left")
+
+email_label = ttk.Label(email_frame, text="Endereço de email:")
+email_label.pack(side="left", padx=(0, 10))
+email_entry = ttk.Entry(email_frame, font="Helvetica, 18")
+email_entry.pack(side="left")
+
+send_email_button = ttk.Button(email_options_frame, text="Enviar Email", command=send_email, bootstyle="info")
+send_email_button.pack(side="left", padx=10)
 
 app.mainloop()
