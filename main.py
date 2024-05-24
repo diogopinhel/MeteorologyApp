@@ -8,9 +8,10 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import os
+import matplotlib.pyplot as plt
 
 # Configuration (move sensitive information to environment variables)
-API_KEY = os.getenv('OPENWEATHERMAP_API_KEY', '1b2f8c4cbcbd0ee0ce628c4130e28dc2')
+API_KEY = os.getenv('OPENWEATHERMAP_API_KEY','1b2f8c4cbcbd0ee0ce628c4130e28dc2')
 EMAIL_USER = os.getenv('EMAIL_USER', 'your_email')
 EMAIL_PASS = os.getenv('EMAIL_PASS', 'your_password')
 
@@ -145,6 +146,7 @@ def send_email():
             server.quit()
 
             messagebox.showinfo("Sucesso", "Email enviado com sucesso!")
+            email_entry.delete(0, tk.END)  # Clear email entry after sending email
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao enviar o email: {e}")
 
@@ -164,6 +166,70 @@ def check_for_alerts(temperature, pressure, humidity, wind_speed):
         alert_label.configure(text=alert_message, fg="red")
     else:
         alert_label.configure(text="Sem alertas de desastres naturais.", fg="green")
+
+# Function to get hourly forecast from OpenWeatherMap API
+def get_hourly_forecast_by_city(city):
+    try:
+        url = f"https://api.openweathermap.org/data/2.5/forecast?q={city}&appid={API_KEY}&units=metric&lang=pt"
+        res = requests.get(url)
+        res.raise_for_status()
+        return res.json()
+    except requests.exceptions.HTTPError:
+        messagebox.showerror("Error", "City not found")
+        return None
+    except Exception as e:
+        messagebox.showerror("Error", f"An error occurred: {e}")
+        return None
+
+# Function to plot hourly forecast
+def plot_hourly_forecast(forecast):
+    hours = []
+    temps = []
+    rain = []
+    clouds = []
+    wind_speed = []
+    descriptions = []
+
+    for entry in forecast['list'][:8]:  # Get the first 8 entries (24 hours forecast at 3-hour intervals)
+        dt = datetime.utcfromtimestamp(entry['dt'])
+        hours.append(dt.strftime('%H:%M'))
+        temps.append(entry['main']['temp'])
+        rain.append(entry['rain']['3h'] if 'rain' in entry else 0)
+        clouds.append(entry['clouds']['all'])
+        wind_speed.append(entry['wind']['speed'])
+        descriptions.append(entry['weather'][0]['description'])
+
+    fig, ax1 = plt.subplots(figsize=(12, 6))  # Increased figure size
+
+    ax1.plot(hours, temps, 'r-', label='Temperature (°C)')
+    ax1.set_xlabel('Time')
+    ax1.set_ylabel('Temperature (°C)', color='r')
+    ax1.tick_params(axis='y', labelcolor='r')
+    ax1.set_ylim([0, 30])
+    
+    ax2 = ax1.twinx()
+    ax2.bar(hours, rain, alpha=0.3, color='b', label='Rain (mm)')
+    ax2.set_ylabel('Rain (mm)', color='b')
+    ax2.tick_params(axis='y', labelcolor='b')
+    ax2.set_ylim([0, 10])
+    
+    ax3 = ax1.twinx()
+    ax3.spines["right"].set_position(("axes", 1.1))
+    ax3.plot(hours, clouds, 'g-', label='Cloudiness (%)')
+    ax3.set_ylabel('Cloudiness (%)', color='g')
+    ax3.tick_params(axis='y', labelcolor='g')
+    ax3.set_ylim([0, 100])
+
+    for i in range(len(hours)):
+        plt.text(hours[i], temps[i], f'{temps[i]}°C\n{descriptions[i]}', ha='center', va='bottom', fontsize=8)
+
+    ax1.legend(loc='upper left')
+    ax2.legend(loc='upper right')
+    ax3.legend(loc='upper center')
+    
+    plt.subplots_adjust(right=0.853)  # Adjust subplot parameters
+    plt.title('Hourly Forecast')
+    plt.show()
 
 # Function to search for weather and update UI
 def search():
@@ -234,6 +300,21 @@ def search():
 
     email_options_frame.pack(pady=10)
 
+    # Clear entries after search
+    city_entry.delete(0, tk.END)
+    lat_entry.delete(0, tk.END)
+    lon_entry.delete(0, tk.END)
+
+# Function to search and plot hourly forecast
+def search_and_plot():
+    city = city_entry.get()
+    forecast = get_hourly_forecast_by_city(city)
+    if forecast:
+        plot_hourly_forecast(forecast)
+    city_entry.delete(0, tk.END)
+    lat_entry.delete(0, tk.END)
+    lon_entry.delete(0, tk.END)
+
 def exit_fullscreen(event=None):
     app.attributes('-fullscreen', False)
 
@@ -281,6 +362,10 @@ add_placeholder(lon_entry, "Longitude")
 
 search_button = ttk.Button(entry_frame, text="Pesquisar", command=search, bootstyle="warning")
 search_button.pack(side="left", padx=10)
+
+# Button to plot hourly forecast
+plot_button = ttk.Button(entry_frame, text="Plot Hourly Forecast", command=search_and_plot, bootstyle="primary")
+plot_button.pack(side="left", padx=10)
 
 location_label = tk.Label(app, font="Helvetica, 25")
 location_label.pack(pady=20, anchor="w", padx=30)
