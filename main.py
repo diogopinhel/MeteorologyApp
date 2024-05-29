@@ -1,21 +1,62 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, Toplevel, ttk
 from PIL import Image, ImageTk
-import ttkbootstrap as ttk
+import ttkbootstrap as ttkb
 from datetime import datetime, timedelta
 import requests
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import os
+import sqlite3
 import matplotlib.pyplot as plt
 
-# Configuration (move sensitive information to environment variables)
-API_KEY = os.getenv('OPENWEATHERMAP_API_KEY','1b2f8c4cbcbd0ee0ce628c4130e28dc2')
-EMAIL_USER = os.getenv('EMAIL_USER', 'your_email')
-EMAIL_PASS = os.getenv('EMAIL_PASS', 'your_password')
+API_KEY = os.getenv('OPENWEATHERMAP_API_KEY', '1b2f8c4cbcbd0ee0ce628c4130e28dc2')
+EMAIL_USER = os.getenv('EMAIL_USER', 'YOUR_EMAIL')
+EMAIL_PASS = os.getenv('EMAIL_PASS', 'YOUR_PASSWORD')
 
-# Function to get current weather information from OpenWeatherMap API
+def create_db():
+    conn = sqlite3.connect('weather_data.db')
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS weather_history (
+            id INTEGER PRIMARY KEY,
+            city TEXT,
+            country TEXT,
+            temperature REAL,
+            description TEXT,
+            humidity INTEGER,
+            wind_speed REAL,
+            pressure INTEGER,
+            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+create_db()
+
+def save_to_db(city, country, temperature, description, humidity, wind_speed, pressure):
+    conn = sqlite3.connect('weather_data.db')
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO weather_history (city, country, temperature, description, humidity, wind_speed, pressure)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (city, country, temperature, description, humidity, wind_speed, pressure))
+    conn.commit()
+    conn.close()
+
+def get_icon(icon_id):
+    try:
+        icon_url = f"http://openweathermap.org/img/wn/{icon_id}@2x.png"
+        response = requests.get(icon_url, stream=True)
+        response.raise_for_status()
+        image = Image.open(response.raw)
+        return ImageTk.PhotoImage(image)
+    except Exception as e:
+        print(f"Error fetching icon {icon_id}: {e}")
+        return None
+
 def get_weather_by_city(city):
     try:
         url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={API_KEY}&lang=pt"
@@ -23,10 +64,10 @@ def get_weather_by_city(city):
         res.raise_for_status()
         return res.json()
     except requests.exceptions.HTTPError:
-        messagebox.showerror("Error", "City not found")
+        messagebox.showerror("Erro", "Cidade não encontrada")
         return None
     except Exception as e:
-        messagebox.showerror("Error", f"An error occurred: {e}")
+        messagebox.showerror("Erro", f"Ocorreu um erro: {e}")
         return None
 
 def get_weather_by_coordinates(lat, lon):
@@ -36,10 +77,10 @@ def get_weather_by_coordinates(lat, lon):
         res.raise_for_status()
         return res.json()
     except requests.exceptions.HTTPError:
-        messagebox.showerror("Error", "Coordinates not found")
+        messagebox.showerror("Erro", "Coordenadas não encontradas")
         return None
     except Exception as e:
-        messagebox.showerror("Error", f"An error occurred: {e}")
+        messagebox.showerror("Erro", f"Ocorreu um erro: {e}")
         return None
 
 def parse_weather_data(weather):
@@ -51,13 +92,12 @@ def parse_weather_data(weather):
     wind_speed = weather['wind']['speed']
     pressure = weather['main']['pressure']
     description = weather['weather'][0]['description']
-    city = weather.get('name', 'Unknown Location')
+    city = weather.get('name', 'Localização Desconhecida')
     country = weather['sys'].get('country', '')
     timezone = weather['timezone']
-    icon_url = f"http://openweathermap.org/img/wn/{icon_id}@2x.png"
-    return (icon_url, temperature, description, city, country, humidity, wind_speed, pressure, timezone)
+    icon = get_icon(icon_id)
+    return (icon, temperature, description, city, country, humidity, wind_speed, pressure, timezone)
 
-# Function to get 5-day weather forecast from OpenWeatherMap API
 def get_forecast_by_city(city):
     try:
         url = f"https://api.openweathermap.org/data/2.5/forecast?q={city}&appid={API_KEY}&lang=pt"
@@ -65,10 +105,10 @@ def get_forecast_by_city(city):
         res.raise_for_status()
         return res.json()
     except requests.exceptions.HTTPError:
-        messagebox.showerror("Error", "City not found")
+        messagebox.showerror("Erro", "Cidade não encontrada")
         return None
     except Exception as e:
-        messagebox.showerror("Error", f"An error occurred: {e}")
+        messagebox.showerror("Erro", f"Ocorreu um erro: {e}")
         return None
 
 def get_forecast_by_coordinates(lat, lon):
@@ -78,10 +118,10 @@ def get_forecast_by_coordinates(lat, lon):
         res.raise_for_status()
         return res.json()
     except requests.exceptions.HTTPError:
-        messagebox.showerror("Error", "Coordinates not found")
+        messagebox.showerror("Erro", "Coordenadas não encontradas")
         return None
     except Exception as e:
-        messagebox.showerror("Error", f"An error occurred: {e}")
+        messagebox.showerror("Erro", f"Ocorreu um erro: {e}")
         return None
 
 def parse_forecast_data(forecast):
@@ -94,23 +134,25 @@ def parse_forecast_data(forecast):
         temp = entry['main']['temp'] - 273.15
         description = entry['weather'][0]['description']
         icon_id = entry['weather'][0]['icon']
-        icon_url = f"http://openweathermap.org/img/wn/{icon_id}@2x.png"
+        icon = get_icon(icon_id)
 
         if day not in daily_forecast:
             daily_forecast[day] = {
                 'min_temp': temp,
                 'max_temp': temp,
                 'description': description,
-                'icon_url': icon_url
+                'icon': icon
             }
         else:
             daily_forecast[day]['min_temp'] = min(daily_forecast[day]['min_temp'], temp)
             daily_forecast[day]['max_temp'] = max(daily_forecast[day]['max_temp'], temp)
+            if temp == daily_forecast[day]['min_temp']:
+                daily_forecast[day]['description'] = description
+                daily_forecast[day]['icon'] = icon
 
     sorted_daily_forecast = sorted(daily_forecast.items())
     return sorted_daily_forecast[:5]
 
-# Function to send forecast email
 def send_email():
     if email_var.get():
         try:
@@ -131,7 +173,6 @@ def send_email():
                 description = data['description']
                 body += f"{day_str}: {min_temp:.1f}°C - {max_temp:.1f}°C, {description}\n"
 
-            # Adicionando alertas de desastres naturais, se houver
             if alert_label.cget('text') != "Sem alertas de desastres naturais.":
                 body += "\n\nAlerta de desastres naturais:\n"
                 body += alert_label.cget('text')
@@ -146,11 +187,9 @@ def send_email():
             server.quit()
 
             messagebox.showinfo("Sucesso", "Email enviado com sucesso!")
-            email_entry.delete(0, tk.END)  # Clear email entry after sending email
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao enviar o email: {e}")
 
-# Function to check for weather alerts
 def check_for_alerts(temperature, pressure, humidity, wind_speed):
     alert_messages = []
 
@@ -167,7 +206,6 @@ def check_for_alerts(temperature, pressure, humidity, wind_speed):
     else:
         alert_label.configure(text="Sem alertas de desastres naturais.", fg="green")
 
-# Function to get hourly forecast from OpenWeatherMap API
 def get_hourly_forecast_by_city(city):
     try:
         url = f"https://api.openweathermap.org/data/2.5/forecast?q={city}&appid={API_KEY}&units=metric&lang=pt"
@@ -175,13 +213,25 @@ def get_hourly_forecast_by_city(city):
         res.raise_for_status()
         return res.json()
     except requests.exceptions.HTTPError:
-        messagebox.showerror("Error", "City not found")
+        messagebox.showerror("Erro", "Cidade não encontrada")
         return None
     except Exception as e:
-        messagebox.showerror("Error", f"An error occurred: {e}")
+        messagebox.showerror("Erro", f"Ocorreu um erro: {e}")
         return None
 
-# Function to plot hourly forecast
+def get_hourly_forecast_by_coordinates(lat, lon):
+    try:
+        url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={API_KEY}&units=metric&lang=pt"
+        res = requests.get(url)
+        res.raise_for_status()
+        return res.json()
+    except requests.exceptions.HTTPError:
+        messagebox.showerror("Erro", "Coordenadas não encontradas")
+        return None
+    except Exception as e:
+        messagebox.showerror("Erro", f"Ocorreu um erro: {e}")
+        return None
+
 def plot_hourly_forecast(forecast):
     hours = []
     temps = []
@@ -190,7 +240,7 @@ def plot_hourly_forecast(forecast):
     wind_speed = []
     descriptions = []
 
-    for entry in forecast['list'][:8]:  # Get the first 8 entries (24 hours forecast at 3-hour intervals)
+    for entry in forecast['list'][:8]:
         dt = datetime.utcfromtimestamp(entry['dt'])
         hours.append(dt.strftime('%H:%M'))
         temps.append(entry['main']['temp'])
@@ -199,39 +249,38 @@ def plot_hourly_forecast(forecast):
         wind_speed.append(entry['wind']['speed'])
         descriptions.append(entry['weather'][0]['description'])
 
-    fig, ax1 = plt.subplots(figsize=(12, 6))  # Increased figure size
+    fig, ax1 = plt.subplots(figsize=(12, 6))
 
-    ax1.plot(hours, temps, 'r-', label='Temperature (°C)')
-    ax1.set_xlabel('Time')
-    ax1.set_ylabel('Temperature (°C)', color='r')
+    ax1.plot(hours, temps, 'r-', label='Temperatura (°C)')
+    ax1.set_xlabel('Hora')
+    ax1.set_ylabel('Temperatura (°C)', color='r')
     ax1.tick_params(axis='y', labelcolor='r')
     ax1.set_ylim([0, 30])
     
     ax2 = ax1.twinx()
-    ax2.bar(hours, rain, alpha=0.3, color='b', label='Rain (mm)')
-    ax2.set_ylabel('Rain (mm)', color='b')
+    ax2.bar(hours, rain, alpha=0.3, color='b', label='Chuva (mm)')
+    ax2.set_ylabel('Chuva (mm)', color='b')
     ax2.tick_params(axis='y', labelcolor='b')
     ax2.set_ylim([0, 10])
     
     ax3 = ax1.twinx()
     ax3.spines["right"].set_position(("axes", 1.1))
-    ax3.plot(hours, clouds, 'g-', label='Cloudiness (%)')
-    ax3.set_ylabel('Cloudiness (%)', color='g')
+    ax3.plot(hours, clouds, 'g-', label='Nebulosidade (%)')
+    ax3.set_ylabel('Nebulosidade (%)', color='g')
     ax3.tick_params(axis='y', labelcolor='g')
     ax3.set_ylim([0, 100])
 
     for i in range(len(hours)):
-        plt.text(hours[i], temps[i], f'{temps[i]}°C\n{descriptions[i]}', ha='center', va='bottom', fontsize=8)
+        plt.text(hours[i], temps[i], f'{temps[i]:.1f}°C\n{descriptions[i]}', ha='center', va='bottom', fontsize=8)
 
     ax1.legend(loc='upper left')
     ax2.legend(loc='upper right')
     ax3.legend(loc='upper center')
     
-    plt.subplots_adjust(right=0.853)  # Adjust subplot parameters
-    plt.title('Hourly Forecast')
+    plt.subplots_adjust(right=0.853)
+    plt.title('Previsão Horária')
     plt.show()
 
-# Function to search for weather and update UI
 def search():
     global forecast_data
     city = city_entry.get()
@@ -251,69 +300,82 @@ def search():
             weather = get_weather_by_coordinates(lat, lon)
             forecast = get_forecast_by_coordinates(lat, lon)
         except ValueError:
-            messagebox.showerror("Error", "Please enter valid numeric coordinates.")
+            messagebox.showerror("Erro", "Por favor, insira coordenadas numéricas válidas.")
             return
     else:
-        messagebox.showerror("Error", "Please enter a city name or coordinates.")
+        messagebox.showerror("Erro", "Por favor, insira o nome de uma cidade ou coordenadas.")
         return
 
     if not weather or not forecast:
         return
 
     result = parse_weather_data(weather)
-    if not result:
+    forecast_data = parse_forecast_data(forecast)
+    if not result or not forecast_data:
         return
-    icon_url, temperature, description, city, country, humidity, wind_speed, pressure, timezone = result
+
+    icon, temperature, description, city, country, humidity, wind_speed, pressure, timezone = result
+    save_to_db(city, country, temperature, description, humidity, wind_speed, pressure)
+    update_weather_ui(result, forecast_data)
+    email_options_frame.pack(pady=10)  # Ensure the email options are displayed
+
+def update_weather_ui(result, forecast_data):
+    icon, temperature, description, city, country, humidity, wind_speed, pressure, timezone = result
     local_time = datetime.utcnow() + timedelta(seconds=timezone)
     local_time_str = local_time.strftime('%H:%M')
 
     location_label.configure(text=f"{city}, {country}")
-    temperature_label.configure(text=f"Temperatura: {temperature:.2f}°C")
+    temperature_label.configure(text=f"Temperatura: {temperature:.1f}°C")
     humidity_label.configure(text=f"Umidade: {humidity}%")
     wind_speed_label.configure(text=f"Velocidade do vento: {wind_speed} m/s")
     pressure_label.configure(text=f"Pressão: {pressure} hPa")
     description_label.configure(text=f"Descrição: {description.capitalize()}")
     timecity_label.configure(text=f"Hora local: {local_time_str}")
 
-    image = Image.open(requests.get(icon_url, stream=True).raw)
-    icon = ImageTk.PhotoImage(image)
-    icon_label.configure(image=icon)
-    icon_label.image = icon
+    if icon:
+        icon_label.configure(image=icon)
+        icon_label.image = icon
 
     check_for_alerts(temperature, pressure, humidity, wind_speed)
 
-    forecast_data = parse_forecast_data(forecast)
     for i in range(5):
         day, data = forecast_data[i]
         min_temp = data['min_temp']
         max_temp = data['max_temp']
         description = data['description']
-        icon_url = data['icon_url']
+        icon = data['icon']
 
         forecast_labels[i][0].configure(text=day.strftime('%A'))
         forecast_labels[i][1].configure(text=f"{min_temp:.1f}°C - {max_temp:.1f}°C")
         forecast_labels[i][2].configure(text=description.capitalize())
-        forecast_image = Image.open(requests.get(icon_url, stream=True).raw)
-        forecast_icon = ImageTk.PhotoImage(forecast_image)
-        forecast_labels[i][3].configure(image=forecast_icon)
-        forecast_labels[i][3].image = forecast_icon
 
-    email_options_frame.pack(pady=10)
+        if icon:
+            forecast_labels[i][3].configure(image=icon)
+            forecast_labels[i][3].image = icon
 
-    # Clear entries after search
-    city_entry.delete(0, tk.END)
-    lat_entry.delete(0, tk.END)
-    lon_entry.delete(0, tk.END)
-
-# Function to search and plot hourly forecast
 def search_and_plot():
     city = city_entry.get()
-    forecast = get_hourly_forecast_by_city(city)
+    lat = lat_entry.get()
+    lon = lon_entry.get()
+
+    forecast = None
+
+    if city and city.lower() != "nome da cidade":
+        forecast = get_hourly_forecast_by_city(city)
+    elif lat and lon and lat.lower() != "latitude" and lon.lower() != "longitude":
+        try:
+            lat = float(lat)
+            lon = float(lon)
+            forecast = get_hourly_forecast_by_coordinates(lat, lon)
+        except ValueError:
+            messagebox.showerror("Erro", "Por favor, insira coordenadas numéricas válidas.")
+            return
+    else:
+        messagebox.showerror("Erro", "Por favor, insira o nome de uma cidade ou coordenadas.")
+        return
+
     if forecast:
         plot_hourly_forecast(forecast)
-    city_entry.delete(0, tk.END)
-    lat_entry.delete(0, tk.END)
-    lon_entry.delete(0, tk.END)
 
 def exit_fullscreen(event=None):
     app.attributes('-fullscreen', False)
@@ -336,36 +398,88 @@ def on_focus_out(event, placeholder_text):
         entry.insert(0, placeholder_text)
         entry.config(foreground='grey')
 
-app = ttk.Window(themename="morph")
+def fetch_history(start_date=None, end_date=None):
+    conn = sqlite3.connect('weather_data.db')
+    c = conn.cursor()
+    query = "SELECT * FROM weather_history"
+    params = []
+    if start_date and end_date:
+        query += " WHERE date BETWEEN ? AND ?"
+        params.append(start_date)
+        params.append(end_date)
+    query += " ORDER BY date DESC"
+    c.execute(query, params)
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def display_history():
+    history_window = Toplevel(app)
+    history_window.title("Histórico de Dados")
+    
+    # Date range selection
+    start_date_label = ttkb.Label(history_window, text="Data Inicial (YYYY-MM-DD):")
+    start_date_label.pack(padx=10, pady=5)
+    start_date_entry = ttkb.Entry(history_window)
+    start_date_entry.pack(padx=10, pady=5)
+    
+    end_date_label = ttkb.Label(history_window, text="Data Final (YYYY-MM-DD):")
+    end_date_label.pack(padx=10, pady=5)
+    end_date_entry = ttkb.Entry(history_window)
+    end_date_entry.pack(padx=10, pady=5)
+    
+    def fetch_and_display():
+        start_date = start_date_entry.get()
+        end_date = end_date_entry.get()
+        history = fetch_history(start_date, end_date)
+        
+        for row in history:
+            formatted_row = (
+                row[0], row[1], row[2], f"{row[3]:.1f}°C", row[4], f"{row[5]}%", f"{row[6]:.1f} m/s", f"{row[7]} hPa", row[8]
+            )
+            tree.insert('', 'end', values=formatted_row)
+    
+    fetch_button = ttkb.Button(history_window, text="Buscar Histórico", command=fetch_and_display)
+    fetch_button.pack(padx=10, pady=10)
+    
+    # Treeview for displaying history
+    columns = ("ID", "Cidade", "País", "Temperatura", "Descrição", "Umidade", "Velocidade do Vento", "Pressão", "Data")
+    tree = ttk.Treeview(history_window, columns=columns, show='headings')
+    for col in columns:
+        tree.heading(col, text=col)
+        tree.column(col, anchor='center')  # Aligning text in the center of each column
+    tree.pack(padx=10, pady=10, fill='both', expand=True)
+
+app = ttkb.Window(themename="morph")
 app.title("APLICAÇÃO METEOROLÓGICA")
 app.geometry("1500x700")
 
-# Set the window to full screen
 app.attributes('-fullscreen', True)
 app.bind("<Escape>", exit_fullscreen)
 
-# Entry frame for city and coordinates
 entry_frame = tk.Frame(app)
 entry_frame.pack(pady=10)
 
-city_entry = ttk.Entry(entry_frame, font="Helvetica, 18")
+city_entry = ttkb.Entry(entry_frame, font="Helvetica, 18")
 city_entry.pack(side="left", padx=10)
 add_placeholder(city_entry, "Nome da Cidade")
 
-lat_entry = ttk.Entry(entry_frame, font="Helvetica, 18")
+lat_entry = ttkb.Entry(entry_frame, font="Helvetica, 18")
 lat_entry.pack(side="left", padx=10)
 add_placeholder(lat_entry, "Latitude")
 
-lon_entry = ttk.Entry(entry_frame, font="Helvetica, 18")
+lon_entry = ttkb.Entry(entry_frame, font="Helvetica, 18")
 lon_entry.pack(side="left", padx=10)
 add_placeholder(lon_entry, "Longitude")
 
-search_button = ttk.Button(entry_frame, text="Pesquisar", command=search, bootstyle="warning")
+search_button = ttkb.Button(entry_frame, text="Pesquisar", command=search, bootstyle="warning")
 search_button.pack(side="left", padx=10)
 
-# Button to plot hourly forecast
-plot_button = ttk.Button(entry_frame, text="Plot Hourly Forecast", command=search_and_plot, bootstyle="primary")
+plot_button = ttkb.Button(entry_frame, text="Previsão Horária", command=search_and_plot, bootstyle="primary")
 plot_button.pack(side="left", padx=10)
+
+history_button = ttkb.Button(entry_frame, text="Ver Histórico", command=display_history, bootstyle="secondary")
+history_button.pack(side="left", padx=10)
 
 location_label = tk.Label(app, font="Helvetica, 25")
 location_label.pack(pady=20, anchor="w", padx=30)
@@ -409,22 +523,21 @@ for i in range(5):
 
     forecast_labels.append((day_label, temp_label, desc_label, icon_label))
 
-# Email options
 email_options_frame = tk.Frame(app)
 
 email_var = tk.BooleanVar()
-email_check = ttk.Checkbutton(email_options_frame, text="Receber previsões por email", variable=email_var, bootstyle="success")
+email_check = ttkb.Checkbutton(email_options_frame, text="Receber previsões por email", variable=email_var, bootstyle="success")
 email_check.pack(side="left", padx=10)
 
 email_frame = tk.Frame(email_options_frame)
 email_frame.pack(side="left")
 
-email_label = ttk.Label(email_frame, text="Endereço de email:")
+email_label = ttkb.Label(email_frame, text="Endereço de email:")
 email_label.pack(side="left", padx=(0, 10))
-email_entry = ttk.Entry(email_frame, font="Helvetica, 18")
+email_entry = ttkb.Entry(email_frame, font="Helvetica, 18")
 email_entry.pack(side="left")
 
-send_email_button = ttk.Button(email_options_frame, text="Enviar Email", command=send_email, bootstyle="info")
+send_email_button = ttkb.Button(email_options_frame, text="Enviar Email", command=send_email, bootstyle="info")
 send_email_button.pack(side="left", padx=10)
 
 app.mainloop()
