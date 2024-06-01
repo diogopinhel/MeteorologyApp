@@ -11,40 +11,47 @@ import os
 import sqlite3
 import matplotlib.pyplot as plt
 
+# Environment Variables
 API_KEY = os.getenv('OPENWEATHERMAP_API_KEY', '1b2f8c4cbcbd0ee0ce628c4130e28dc2')
-EMAIL_USER = os.getenv('EMAIL_USER', 'YOUR_EMAIL')
-EMAIL_PASS = os.getenv('EMAIL_PASS', 'YOUR_PASSWORD')
+EMAIL_USER = os.getenv('EMAIL_USER', 'your_email')
+EMAIL_PASS = os.getenv('EMAIL_PASS', 'your_email_password')
 
 def create_db():
-    conn = sqlite3.connect('weather_data.db')
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS weather_history (
-            id INTEGER PRIMARY KEY,
-            city TEXT,
-            country TEXT,
-            temperature REAL,
-            description TEXT,
-            humidity INTEGER,
-            wind_speed REAL,
-            pressure INTEGER,
-            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    with sqlite3.connect('weather_data.db') as conn:
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS weather_history (
+                id INTEGER PRIMARY KEY,
+                city TEXT,
+                country TEXT,
+                temperature REAL,
+                description TEXT,
+                humidity INTEGER,
+                wind_speed REAL,
+                pressure INTEGER,
+                precipitation REAL,
+                date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
 
-create_db()
+def add_precipitation_column():
+    with sqlite3.connect('weather_data.db') as conn:
+        c = conn.cursor()
+        c.execute("PRAGMA table_info(weather_history)")
+        columns = [col[1] for col in c.fetchall()]
+        if 'precipitation' not in columns:
+            c.execute('ALTER TABLE weather_history ADD COLUMN precipitation REAL')
+            conn.commit()
 
-def save_to_db(city, country, temperature, description, humidity, wind_speed, pressure):
-    conn = sqlite3.connect('weather_data.db')
-    c = conn.cursor()
-    c.execute('''
-        INSERT INTO weather_history (city, country, temperature, description, humidity, wind_speed, pressure)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (city, country, temperature, description, humidity, wind_speed, pressure))
-    conn.commit()
-    conn.close()
+def save_to_db(city, country, temperature, description, humidity, wind_speed, pressure, precipitation):
+    with sqlite3.connect('weather_data.db') as conn:
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO weather_history (city, country, temperature, description, humidity, wind_speed, pressure, precipitation)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (city, country, temperature, description, humidity, wind_speed, pressure, precipitation))
+        conn.commit()
 
 def get_icon(icon_id):
     try:
@@ -92,11 +99,12 @@ def parse_weather_data(weather):
     wind_speed = weather['wind']['speed']
     pressure = weather['main']['pressure']
     description = weather['weather'][0]['description']
+    precipitation = weather.get('rain', {}).get('1h', 0) or weather.get('snow', {}).get('1h', 0)
     city = weather.get('name', 'Localização Desconhecida')
     country = weather['sys'].get('country', '')
     timezone = weather['timezone']
     icon = get_icon(icon_id)
-    return (icon, temperature, description, city, country, humidity, wind_speed, pressure, timezone)
+    return (icon, temperature, description, city, country, humidity, wind_speed, pressure, precipitation, timezone)
 
 def get_forecast_by_city(city):
     try:
@@ -314,13 +322,13 @@ def search():
     if not result or not forecast_data:
         return
 
-    icon, temperature, description, city, country, humidity, wind_speed, pressure, timezone = result
-    save_to_db(city, country, temperature, description, humidity, wind_speed, pressure)
+    icon, temperature, description, city, country, humidity, wind_speed, pressure, precipitation, timezone = result
+    save_to_db(city, country, temperature, description, humidity, wind_speed, pressure, precipitation)
     update_weather_ui(result, forecast_data)
     email_options_frame.pack(pady=10)  # Ensure the email options are displayed
 
 def update_weather_ui(result, forecast_data):
-    icon, temperature, description, city, country, humidity, wind_speed, pressure, timezone = result
+    icon, temperature, description, city, country, humidity, wind_speed, pressure, precipitation, timezone = result
     local_time = datetime.utcnow() + timedelta(seconds=timezone)
     local_time_str = local_time.strftime('%H:%M')
 
@@ -329,6 +337,7 @@ def update_weather_ui(result, forecast_data):
     humidity_label.configure(text=f"Umidade: {humidity}%")
     wind_speed_label.configure(text=f"Velocidade do vento: {wind_speed} m/s")
     pressure_label.configure(text=f"Pressão: {pressure} hPa")
+    precipitation_label.configure(text=f"Precipitação: {precipitation} mm")
     description_label.configure(text=f"Descrição: {description.capitalize()}")
     timecity_label.configure(text=f"Hora local: {local_time_str}")
 
@@ -399,18 +408,17 @@ def on_focus_out(event, placeholder_text):
         entry.config(foreground='grey')
 
 def fetch_history(start_date=None, end_date=None):
-    conn = sqlite3.connect('weather_data.db')
-    c = conn.cursor()
-    query = "SELECT * FROM weather_history"
-    params = []
-    if start_date and end_date:
-        query += " WHERE date BETWEEN ? AND ?"
-        params.append(start_date)
-        params.append(end_date)
-    query += " ORDER BY date DESC"
-    c.execute(query, params)
-    rows = c.fetchall()
-    conn.close()
+    with sqlite3.connect('weather_data.db') as conn:
+        c = conn.cursor()
+        query = "SELECT * FROM weather_history"
+        params = []
+        if start_date and end_date:
+            query += " WHERE date BETWEEN ? AND ?"
+            params.append(start_date)
+            params.append(end_date)
+        query += " ORDER BY date DESC"
+        c.execute(query, params)
+        rows = c.fetchall()
     return rows
 
 def display_history():
@@ -435,7 +443,7 @@ def display_history():
         
         for row in history:
             formatted_row = (
-                row[0], row[1], row[2], f"{row[3]:.1f}°C", row[4], f"{row[5]}%", f"{row[6]:.1f} m/s", f"{row[7]} hPa", row[8]
+                row[0], row[1], row[2], f"{row[3]:.1f}°C", row[4], f"{row[5]}%", f"{row[6]::.1f} m/s", f"{row[7]} hPa", f"{row[8]} mm", row[9]
             )
             tree.insert('', 'end', values=formatted_row)
     
@@ -443,13 +451,14 @@ def display_history():
     fetch_button.pack(padx=10, pady=10)
     
     # Treeview for displaying history
-    columns = ("ID", "Cidade", "País", "Temperatura", "Descrição", "Umidade", "Velocidade do Vento", "Pressão", "Data")
+    columns = ("ID", "Cidade", "País", "Temperatura", "Descrição", "Umidade", "Velocidade do Vento", "Pressão", "Precipitação", "Data")
     tree = ttk.Treeview(history_window, columns=columns, show='headings')
     for col in columns:
         tree.heading(col, text=col)
         tree.column(col, anchor='center')  # Aligning text in the center of each column
     tree.pack(padx=10, pady=10, fill='both', expand=True)
 
+# Main Application Setup
 app = ttkb.Window(themename="morph")
 app.title("APLICAÇÃO METEOROLÓGICA")
 app.geometry("1500x700")
@@ -475,7 +484,7 @@ add_placeholder(lon_entry, "Longitude")
 search_button = ttkb.Button(entry_frame, text="Pesquisar", command=search, bootstyle="warning")
 search_button.pack(side="left", padx=10)
 
-plot_button = ttkb.Button(entry_frame, text="Previsão Horária", command=search_and_plot, bootstyle="primary")
+plot_button = ttkb.Button(entry_frame, text="Gráfico Meteorológico", command=search_and_plot, bootstyle="primary")
 plot_button.pack(side="left", padx=10)
 
 history_button = ttkb.Button(entry_frame, text="Ver Histórico", command=display_history, bootstyle="secondary")
@@ -495,6 +504,8 @@ wind_speed_label = tk.Label(app, font="Helvetica, 20")
 wind_speed_label.pack(anchor="w", padx=30)
 pressure_label = tk.Label(app, font="Helvetica, 20")
 pressure_label.pack(anchor="w", padx=30)
+precipitation_label = tk.Label(app, font="Helvetica, 20")
+precipitation_label.pack(anchor="w", padx=30)
 timecity_label = tk.Label(app, font="Helvetica, 20")
 timecity_label.pack(anchor="w", padx=30)
 
@@ -539,5 +550,9 @@ email_entry.pack(side="left")
 
 send_email_button = ttkb.Button(email_options_frame, text="Enviar Email", command=send_email, bootstyle="info")
 send_email_button.pack(side="left", padx=10)
+
+# Ensure the database is created and the precipitation column is added
+create_db()
+add_precipitation_column()
 
 app.mainloop()
