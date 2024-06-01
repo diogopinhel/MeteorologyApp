@@ -198,14 +198,16 @@ def send_email():
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao enviar o email: {e}")
 
-def check_for_alerts(temperature, pressure, humidity, wind_speed):
+def check_for_alerts(temperature, pressure, humidity,precipitation, wind_speed):
     alert_messages = []
 
-    if wind_speed > 33.5 and pressure < 980:
+    if wind_speed > 33.5 and pressure < 980 and humidity > 75 and temperature > 26:
         alert_messages.append("Condições favoráveis para furacões.")
-    if wind_speed > 11.2 and pressure < 1050:
+
+    if wind_speed > 20.0 and pressure < 1000 and humidity > 70:
         alert_messages.append("Condições favoráveis para tornados.")
-    if humidity > 80 and temperature > 24:
+
+    if humidity > 80 and temperature > 24 and precipitation < 15:
         alert_messages.append("Condições favoráveis para inundações.")
 
     if alert_messages:
@@ -334,7 +336,7 @@ def update_weather_ui(result, forecast_data):
 
     location_label.configure(text=f"{city}, {country}")
     temperature_label.configure(text=f"Temperatura: {temperature:.1f}°C")
-    humidity_label.configure(text=f"Umidade: {humidity}%")
+    humidity_label.configure(text=f"Humidade: {humidity}%")
     wind_speed_label.configure(text=f"Velocidade do vento: {wind_speed} m/s")
     pressure_label.configure(text=f"Pressão: {pressure} hPa")
     precipitation_label.configure(text=f"Precipitação: {precipitation} mm")
