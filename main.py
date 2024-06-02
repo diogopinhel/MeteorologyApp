@@ -13,8 +13,8 @@ import matplotlib.pyplot as plt
 
 # Environment Variables
 API_KEY = os.getenv('OPENWEATHERMAP_API_KEY', '1b2f8c4cbcbd0ee0ce628c4130e28dc2')
-EMAIL_USER = os.getenv('EMAIL_USER', 'your_email')
-EMAIL_PASS = os.getenv('EMAIL_PASS', 'your_email_password')
+EMAIL_USER = os.getenv('EMAIL_USER', 'ClimaAlert@outlook.com') #Put your email
+EMAIL_PASS = os.getenv('EMAIL_PASS', 'Alertaclimatica1234') #Put your password
 
 def create_db():
     with sqlite3.connect('weather_data.db') as conn:
@@ -34,15 +34,6 @@ def create_db():
             )
         ''')
         conn.commit()
-
-def add_precipitation_column():
-    with sqlite3.connect('weather_data.db') as conn:
-        c = conn.cursor()
-        c.execute("PRAGMA table_info(weather_history)")
-        columns = [col[1] for col in c.fetchall()]
-        if 'precipitation' not in columns:
-            c.execute('ALTER TABLE weather_history ADD COLUMN precipitation REAL')
-            conn.commit()
 
 def save_to_db(city, country, temperature, description, humidity, wind_speed, pressure, precipitation):
     with sqlite3.connect('weather_data.db') as conn:
@@ -161,6 +152,71 @@ def parse_forecast_data(forecast):
     sorted_daily_forecast = sorted(daily_forecast.items())
     return sorted_daily_forecast[:5]
 
+def send_critical_alert_email(alert_message):
+    try:
+        from_email = EMAIL_USER
+        from_password = EMAIL_PASS
+        to_email = email_entry.get()
+
+        # Define um assunto chamativo com base no alerta
+        subject = "⚠️ ALERTA CRÍTICO: Desastre Natural Imediato ⚠️"
+
+        if "furacões" in alert_message.lower():
+            subject = "🌪️ ALERTA CRÍTICO: Condições Favoráveis para Furacões 🌪️"
+        elif "tornados" in alert_message.lower():
+            subject = "🌪️ ALERTA CRÍTICO: Condições Favoráveis para Tornados 🌪️"
+        elif "inundações" in alert_message.lower():
+            subject = "🌧️ ALERTA CRÍTICO: Condições Favoráveis para Inundações 🌧️"
+        elif "tempestades severas" in alert_message.lower():
+            subject = "⛈️ ALERTA CRÍTICO: Condições Favoráveis para Tempestades Severas ⛈️"
+
+        msg = MIMEMultipart()
+        msg['From'] = from_email
+        msg['To'] = to_email
+        msg['Subject'] = subject
+
+        body = f"Alerta Crítico:\n\n{alert_message}\n\nFique seguro e tome as devidas precauções."
+        msg.attach(MIMEText(body, 'plain'))
+
+        server = smtplib.SMTP('smtp.office365.com', 587)
+        server.starttls()
+        server.login(from_email, from_password)
+        text = msg.as_string()
+        server.sendmail(from_email, to_email, text)
+        server.quit()
+
+        messagebox.showinfo("Sucesso", "Email de alerta crítico enviado com sucesso!")
+    except Exception as e:
+        messagebox.showerror("Erro", f"Erro ao enviar o email de alerta crítico: {e}")
+
+def check_for_alerts(temperature, pressure, humidity, wind_speed, precipitation):
+    alert_messages = []
+
+    # Furacões
+    if wind_speed > 33.5 and pressure < 980 and humidity > 75 and temperature > 26:
+        alert_messages.append("Condições favoráveis para furacões.")
+    
+    # Tornados (ajustado)
+    if wind_speed > 20.0 and pressure < 1000 and humidity > 70:
+        alert_messages.append("Condições favoráveis para tornados.")
+    
+    # Inundações (atualizado)
+    if humidity > 80 and temperature > 24 and precipitation > 10:
+        alert_messages.append("Condições favoráveis para inundações.")
+    
+    # Tempestades Severas
+    if wind_speed > 25 and precipitation > 15:
+        alert_messages.append("Condições favoráveis para tempestades severas.")
+
+    if alert_messages:
+        alert_message = "\n".join(alert_messages)
+        alert_label.configure(text=alert_message, fg="red")
+        if email_var.get() and email_entry.get():
+            send_critical_alert_email(alert_message)
+    else:
+        alert_label.configure(text="Sem alertas de desastres naturais.", fg="green")
+
+
 def send_email():
     if email_var.get():
         try:
@@ -168,10 +224,25 @@ def send_email():
             from_password = EMAIL_PASS
             to_email = email_entry.get()
 
+            # Default subject
+            subject = "Previsão do Tempo para a Semana"
+            alert_text = alert_label.cget('text')
+
+            # Check if there are critical alerts
+            if alert_text != "Sem alertas de desastres naturais.":
+                if "furacões" in alert_text.lower():
+                    subject = "🌪️ ALERTA CRÍTICO: Condições Favoráveis para Furacões 🌪️"
+                elif "tornados" in alert_text.lower():
+                    subject = "🌪️ ALERTA CRÍTICO: Condições Favoráveis para Tornados 🌪️"
+                elif "inundações" in alert_text.lower():
+                    subject = "🌧️ ALERTA CRÍTICO: Condições Favoráveis para Inundações 🌧️"
+                elif "tempestades severas" in alert_text.lower():
+                    subject = "⛈️ ALERTA CRÍTICO: Condições Favoráveis para Tempestades Severas ⛈️"
+
             msg = MIMEMultipart()
             msg['From'] = from_email
             msg['To'] = to_email
-            msg['Subject'] = "Previsão do Tempo para a Semana"
+            msg['Subject'] = subject
 
             body = "Aqui está a previsão do tempo para a semana:\n\n"
             for day, data in forecast_data:
@@ -181,9 +252,9 @@ def send_email():
                 description = data['description']
                 body += f"{day_str}: {min_temp:.1f}°C - {max_temp:.1f}°C, {description}\n"
 
-            if alert_label.cget('text') != "Sem alertas de desastres naturais.":
+            if alert_text != "Sem alertas de desastres naturais.":
                 body += "\n\nAlerta de desastres naturais:\n"
-                body += alert_label.cget('text')
+                body += alert_text
 
             msg.attach(MIMEText(body, 'plain'))
 
@@ -197,24 +268,6 @@ def send_email():
             messagebox.showinfo("Sucesso", "Email enviado com sucesso!")
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao enviar o email: {e}")
-
-def check_for_alerts(temperature, pressure, humidity,precipitation, wind_speed):
-    alert_messages = []
-
-    if wind_speed > 33.5 and pressure < 980 and humidity > 75 and temperature > 26:
-        alert_messages.append("Condições favoráveis para furacões.")
-
-    if wind_speed > 20.0 and pressure < 1000 and humidity > 70:
-        alert_messages.append("Condições favoráveis para tornados.")
-
-    if humidity > 80 and temperature > 24 and precipitation < 15:
-        alert_messages.append("Condições favoráveis para inundações.")
-
-    if alert_messages:
-        alert_message = "\n".join(alert_messages)
-        alert_label.configure(text=alert_message, fg="red")
-    else:
-        alert_label.configure(text="Sem alertas de desastres naturais.", fg="green")
 
 def get_hourly_forecast_by_city(city):
     try:
@@ -336,7 +389,7 @@ def update_weather_ui(result, forecast_data):
 
     location_label.configure(text=f"{city}, {country}")
     temperature_label.configure(text=f"Temperatura: {temperature:.1f}°C")
-    humidity_label.configure(text=f"Humidade: {humidity}%")
+    humidity_label.configure(text=f"Umidade: {humidity}%")
     wind_speed_label.configure(text=f"Velocidade do vento: {wind_speed} m/s")
     pressure_label.configure(text=f"Pressão: {pressure} hPa")
     precipitation_label.configure(text=f"Precipitação: {precipitation} mm")
@@ -347,7 +400,7 @@ def update_weather_ui(result, forecast_data):
         icon_label.configure(image=icon)
         icon_label.image = icon
 
-    check_for_alerts(temperature, pressure, humidity, wind_speed)
+    check_for_alerts(temperature, pressure, humidity, wind_speed, precipitation)
 
     for i in range(5):
         day, data = forecast_data[i]
@@ -426,44 +479,75 @@ def fetch_history(start_date=None, end_date=None):
 def display_history():
     history_window = Toplevel(app)
     history_window.title("Histórico de Dados")
-    
+    history_window.geometry("1850x900")
+
     # Date range selection
     start_date_label = ttkb.Label(history_window, text="Data Inicial (YYYY-MM-DD):")
     start_date_label.pack(padx=10, pady=5)
     start_date_entry = ttkb.Entry(history_window)
     start_date_entry.pack(padx=10, pady=5)
-    
+
     end_date_label = ttkb.Label(history_window, text="Data Final (YYYY-MM-DD):")
     end_date_label.pack(padx=10, pady=5)
     end_date_entry = ttkb.Entry(history_window)
     end_date_entry.pack(padx=10, pady=5)
-    
+
+    def clear_treeview():
+        for item in tree.get_children():
+            tree.delete(item)
+
     def fetch_and_display():
+        clear_treeview()
         start_date = start_date_entry.get()
         end_date = end_date_entry.get()
         history = fetch_history(start_date, end_date)
-        
+
         for row in history:
+            id_, city, country, temperature, description, humidity, wind_speed, pressure, precipitation, date = row
+
+            # Handling None values and ensuring proper formatting
+            temperature_str = f"{temperature:.1f}°C" if isinstance(temperature, (float, int)) else "N/A"
+            humidity_str = f"{humidity}%" if isinstance(humidity, (float, int)) else "N/A"
+            wind_speed_str = f"{wind_speed:.1f} m/s" if isinstance(wind_speed, (float, int)) else "N/A"
+            pressure_str = f"{pressure} hPa" if isinstance(pressure, (float, int)) else "N/A"
+            precipitation_str = f"{precipitation:.1f} mm" if isinstance(precipitation, (float, int)) else "N/A"
+
             formatted_row = (
-                row[0], row[1], row[2], f"{row[3]:.1f}°C", row[4], f"{row[5]}%", f"{row[6]::.1f} m/s", f"{row[7]} hPa", f"{row[8]} mm", row[9]
+                id_, city, country, temperature_str, description, humidity_str, wind_speed_str, pressure_str, precipitation_str, date
             )
             tree.insert('', 'end', values=formatted_row)
-    
+
     fetch_button = ttkb.Button(history_window, text="Buscar Histórico", command=fetch_and_display)
     fetch_button.pack(padx=10, pady=10)
-    
+
     # Treeview for displaying history
     columns = ("ID", "Cidade", "País", "Temperatura", "Descrição", "Umidade", "Velocidade do Vento", "Pressão", "Precipitação", "Data")
     tree = ttk.Treeview(history_window, columns=columns, show='headings')
+
+    # Adjusting column widths and alignment
+    column_widths = {
+        "ID": 30,
+        "Cidade": 100,
+        "País": 50,
+        "Temperatura": 80,
+        "Descrição": 150,
+        "Umidade": 80,
+        "Velocidade do Vento": 130,
+        "Pressão": 80,
+        "Precipitação": 100,
+        "Data": 180
+    }
+
     for col in columns:
         tree.heading(col, text=col)
-        tree.column(col, anchor='center')  # Aligning text in the center of each column
+        tree.column(col, width=column_widths[col], anchor='center')  # Adjusting the width and aligning text in the center
+
     tree.pack(padx=10, pady=10, fill='both', expand=True)
 
-# Main Application Setup
+# Main Application Setup (previous setup code remains the same)
 app = ttkb.Window(themename="morph")
 app.title("APLICAÇÃO METEOROLÓGICA")
-app.geometry("1500x700")
+app.geometry("1800x900")  # Increased main window size
 
 app.attributes('-fullscreen', True)
 app.bind("<Escape>", exit_fullscreen)
@@ -553,8 +637,7 @@ email_entry.pack(side="left")
 send_email_button = ttkb.Button(email_options_frame, text="Enviar Email", command=send_email, bootstyle="info")
 send_email_button.pack(side="left", padx=10)
 
-# Ensure the database is created and the precipitation column is added
+# Ensure the database is created
 create_db()
-add_precipitation_column()
 
 app.mainloop()
