@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 # Environment Variables
 API_KEY = os.getenv('OPENWEATHERMAP_API_KEY', '1b2f8c4cbcbd0ee0ce628c4130e28dc2')
-EMAIL_USER = os.getenv('EMAIL_USER', 'ClimaAlert@outlook.com') #Put your email
+EMAIL_USER = os.getenv('EMAIL_USER', 'ClimaAlert@outlook.pt') #Put your email
 EMAIL_PASS = os.getenv('EMAIL_PASS', 'Alertaclimatica1234') #Put your password
 
 def create_db():
@@ -30,18 +30,23 @@ def create_db():
                 wind_speed REAL,
                 pressure INTEGER,
                 precipitation REAL,
-                date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                date TIMESTAMP
             )
         ''')
         conn.commit()
 
-def save_to_db(city, country, temperature, description, humidity, wind_speed, pressure, precipitation):
+def convert_to_local_time(utc_time, timezone_offset):
+    return utc_time + timedelta(seconds=timezone_offset)
+
+def save_to_db(city, country, temperature, description, humidity, wind_speed, pressure, precipitation, timezone_offset):
+    utc_time = datetime.utcnow()
+    local_time = convert_to_local_time(utc_time, timezone_offset)
     with sqlite3.connect('weather_data.db') as conn:
         c = conn.cursor()
         c.execute('''
-            INSERT INTO weather_history (city, country, temperature, description, humidity, wind_speed, pressure, precipitation)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (city, country, temperature, description, humidity, wind_speed, pressure, precipitation))
+            INSERT INTO weather_history (city, country, temperature, description, humidity, wind_speed, pressure, precipitation, date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (city, country, temperature, description, humidity, wind_speed, pressure, precipitation, local_time))
         conn.commit()
 
 def get_icon(icon_id):
@@ -93,9 +98,9 @@ def parse_weather_data(weather):
     precipitation = weather.get('rain', {}).get('1h', 0) or weather.get('snow', {}).get('1h', 0)
     city = weather.get('name', 'Localização Desconhecida')
     country = weather['sys'].get('country', '')
-    timezone = weather['timezone']
+    timezone_offset = weather['timezone']
     icon = get_icon(icon_id)
-    return (icon, temperature, description, city, country, humidity, wind_speed, pressure, precipitation, timezone)
+    return (icon, temperature, description, city, country, humidity, wind_speed, pressure, precipitation, timezone_offset)
 
 def get_forecast_by_city(city):
     try:
@@ -145,12 +150,10 @@ def parse_forecast_data(forecast):
         else:
             daily_forecast[day]['min_temp'] = min(daily_forecast[day]['min_temp'], temp)
             daily_forecast[day]['max_temp'] = max(daily_forecast[day]['max_temp'], temp)
-            if temp == daily_forecast[day]['min_temp']:
-                daily_forecast[day]['description'] = description
-                daily_forecast[day]['icon'] = icon
 
     sorted_daily_forecast = sorted(daily_forecast.items())
-    return sorted_daily_forecast[:5]
+    next_day_forecast = [item for item in sorted_daily_forecast if item[0] > datetime.utcnow().date()]
+    return next_day_forecast[:5]
 
 def send_critical_alert_email(alert_message):
     try:
@@ -216,7 +219,6 @@ def check_for_alerts(temperature, pressure, humidity, wind_speed, precipitation)
     else:
         alert_label.configure(text="Sem alertas de desastres naturais.", fg="green")
 
-
 def send_email():
     if email_var.get():
         try:
@@ -225,7 +227,7 @@ def send_email():
             to_email = email_entry.get()
 
             # Default subject
-            subject = "Previsão do Tempo para a Semana"
+            subject = "Previsão do Tempo para os próximos 5 dias"
             alert_text = alert_label.cget('text')
 
             # Check if there are critical alerts
@@ -244,7 +246,9 @@ def send_email():
             msg['To'] = to_email
             msg['Subject'] = subject
 
-            body = "Aqui está a previsão do tempo para a semana:\n\n"
+            city = city_entry.get()
+
+            body = f"Aqui está a previsão do tempo de para os próximos 5 dias:\n\n"
             for day, data in forecast_data:
                 day_str = day.strftime('%A')
                 min_temp = data['min_temp']
@@ -377,19 +381,19 @@ def search():
     if not result or not forecast_data:
         return
 
-    icon, temperature, description, city, country, humidity, wind_speed, pressure, precipitation, timezone = result
-    save_to_db(city, country, temperature, description, humidity, wind_speed, pressure, precipitation)
+    icon, temperature, description, city, country, humidity, wind_speed, pressure, precipitation, timezone_offset = result
+    save_to_db(city, country, temperature, description, humidity, wind_speed, pressure, precipitation, timezone_offset)
     update_weather_ui(result, forecast_data)
     email_options_frame.pack(pady=10)  # Ensure the email options are displayed
 
 def update_weather_ui(result, forecast_data):
-    icon, temperature, description, city, country, humidity, wind_speed, pressure, precipitation, timezone = result
-    local_time = datetime.utcnow() + timedelta(seconds=timezone)
+    icon, temperature, description, city, country, humidity, wind_speed, pressure, precipitation, timezone_offset = result
+    local_time = datetime.utcnow() + timedelta(seconds=timezone_offset)
     local_time_str = local_time.strftime('%H:%M')
 
     location_label.configure(text=f"{city}, {country}")
     temperature_label.configure(text=f"Temperatura: {temperature:.1f}°C")
-    humidity_label.configure(text=f"Umidade: {humidity}%")
+    humidity_label.configure(text=f"Humidade: {humidity}%")
     wind_speed_label.configure(text=f"Velocidade do vento: {wind_speed} m/s")
     pressure_label.configure(text=f"Pressão: {pressure} hPa")
     precipitation_label.configure(text=f"Precipitação: {precipitation} mm")
@@ -411,7 +415,7 @@ def update_weather_ui(result, forecast_data):
 
         forecast_labels[i][0].configure(text=day.strftime('%A'))
         forecast_labels[i][1].configure(text=f"{min_temp:.1f}°C - {max_temp:.1f}°C")
-        forecast_labels[i][2].configure(text=description.capitalize())
+        forecast_labels[i][2].configure(text=description.capitalize())  # Ensure the description is displayed
 
         if icon:
             forecast_labels[i][3].configure(image=icon)
@@ -512,8 +516,16 @@ def display_history():
             pressure_str = f"{pressure} hPa" if isinstance(pressure, (float, int)) else "N/A"
             precipitation_str = f"{precipitation:.1f} mm" if isinstance(precipitation, (float, int)) else "N/A"
 
+            # Try parsing with and without microseconds
+            try:
+                local_time = datetime.strptime(date, "%Y-%m-%d %H:%M:%S.%f")
+            except ValueError:
+                local_time = datetime.strptime(date, "%Y-%m-%d %H:%M:%S")
+
+            formatted_date = local_time.strftime("%Y-%m-%d %H:%M:%S")  # Format without microseconds
+
             formatted_row = (
-                id_, city, country, temperature_str, description, humidity_str, wind_speed_str, pressure_str, precipitation_str, date
+                id_, city, country, temperature_str, description, humidity_str, wind_speed_str, pressure_str, precipitation_str, formatted_date
             )
             tree.insert('', 'end', values=formatted_row)
 
@@ -521,7 +533,7 @@ def display_history():
     fetch_button.pack(padx=10, pady=10)
 
     # Treeview for displaying history
-    columns = ("ID", "Cidade", "País", "Temperatura", "Descrição", "Umidade", "Velocidade do Vento", "Pressão", "Precipitação", "Data")
+    columns = ("ID", "Cidade", "País", "Temperatura", "Descrição", "Humidade", "Velocidade do Vento", "Pressão", "Precipitação", "Data")
     tree = ttk.Treeview(history_window, columns=columns, show='headings')
 
     # Adjusting column widths and alignment
@@ -531,7 +543,7 @@ def display_history():
         "País": 50,
         "Temperatura": 80,
         "Descrição": 150,
-        "Umidade": 80,
+        "Humidade": 80,
         "Velocidade do Vento": 130,
         "Pressão": 80,
         "Precipitação": 100,
