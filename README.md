@@ -33,11 +33,10 @@ Depois de abrir o CMD, irá visualizar uma janela preta com texto branco, onde p
    Passo 4: Escreva o seguinte comando no CMD para instalar as bibliotecas necessárias à aplicação:
 
    ```bash
-   pip install Pillow==8.4.0 ttkbootstrap==0.5.1 requests==2.26.0 matplotlib==3.4.3
+   pip install Pillow==8.4.0 ttkbootstrap==0.5.1 requests==2.26.0 matplotlib==3.4.3 
+```
 
-Uso
-
-Interface Principal
+### Interface Principal
 
 - **PEsquisar Clima**: Insira o nome de uma cidade ou coordenadas (latitude e longitude) e clique em "Pesquisar" para pesquisar dados meteorológicos.
 - **Ver Previsão**: A aplicação exibe uma previsão de 5 dias com resumos diários.
@@ -45,7 +44,7 @@ Interface Principal
 - **Alertas Meteorológicos**: Alertas críticos de condições meteorológicas são exibidos, e os utilizadores serão notificados por e-mail se estiverem habilitados.
 - **Notificações por E-mail**: Marque "Receber previsões por email" e forneça seu endereço de e-mail para receber previsões semanais e alertas.
 
-Notificações por E-mail
+**Notificações por E-mail**
 
 - A aplicação envia previsões semanais e alertas críticos de condições meteorológicas para o endereço de e-mail especificado.
 - Alertas críticos incluem condições favoráveis para furacões, tornados, inundaçõese tempestades severas.
