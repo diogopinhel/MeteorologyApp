@@ -38,7 +38,7 @@ Depois de abrir o CMD, irá visualizar uma janela preta com texto branco, onde p
 
 ### Interface Principal
 
-- **PEsquisar Clima**: Insira o nome de uma cidade ou coordenadas (latitude e longitude) e clique em "Pesquisar" para pesquisar dados meteorológicos.
+- **Pesquisar Clima**: Insira o nome de uma cidade ou coordenadas (latitude e longitude) e clique em "Pesquisar" para pesquisar dados meteorológicos.
 - **Ver Previsão**: A aplicação exibe uma previsão de 5 dias com resumos diários.
 - **Dados Históricos**: Clique em "Ver Histórico" para visualizar dados meteorológicos passados.
 - **Alertas Meteorológicos**: Alertas críticos de condições meteorológicas são exibidos, e os utilizadores serão notificados por e-mail se estiverem habilitados.
